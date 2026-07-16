@@ -12,8 +12,16 @@ from soundsbored.download import download_all
 from soundsbored.index import index_is_empty
 from soundsbored.menu import MenuResultKind, detect_backend, show_menu
 from soundsbored.notify import notify, warn
-from soundsbored.paths import ensure_layout, index_path, toggle_path
-from soundsbored.player import fade_out_all, play_file, stop_all
+from soundsbored.paths import ensure_layout, index_path, toggle_path, volume_path
+from soundsbored.player import (
+    DEFAULT_VOLUME,
+    fade_out_all,
+    get_volume,
+    play_file,
+    stop_all,
+    volume_down,
+    volume_up,
+)
 
 CATEGORIES = ("openings", "in-call", "closers")
 
@@ -29,11 +37,10 @@ CAT_HINT = {
     "closers": "←  In-Call",
 }
 
-
 @dataclass
 class MenuEntry:
     label: str
-    action: str  # play | toggle | laugh | fade | stop | noop
+    action: str  # play | toggle | laugh | fade | stop | vol_down | vol_up | noop
     path: Path | None = None
 
 
@@ -84,6 +91,7 @@ def build_menu(clips: list[idx.Clip], category: str) -> list[MenuEntry]:
 
     tstate = _read_toggle_state()
     tlabel = "Wooo / Awww  · next: Wooo" if tstate == 0 else "Wooo / Awww  · next: Awww"
+    vol = get_volume()
 
     entries.append(MenuEntry(label="  ♪  Sad Trombone", action="play", path=sad.path if sad else None))
     entries.append(MenuEntry(label="  ♪  Damn Son", action="play", path=damn.path if damn else None))
@@ -91,7 +99,16 @@ def build_menu(clips: list[idx.Clip], category: str) -> list[MenuEntry]:
     entries.append(MenuEntry(label="  ♪  Laugh Track (random)", action="laugh"))
     entries.append(MenuEntry(label="  ↷  Fade Out", action="fade"))
     entries.append(MenuEntry(label="  ■  Stop", action="stop"))
+    # Menu-item volume only (same labels on Linux rofi and macOS fzf)
+    entries.append(MenuEntry(label=f"  🔉  Volume Down  ({vol}%)", action="vol_down"))
+    entries.append(MenuEntry(label=f"  🔊  Volume Up    ({vol}%)", action="vol_up"))
     return entries
+
+
+def _strip_indices(entries: list[MenuEntry]) -> tuple[int, int]:
+    """Return (separator_index, hotkey_start) for theming."""
+    sep_idx = next((i for i, e in enumerate(entries) if e.action == "noop"), len(entries) - 1)
+    return sep_idx, sep_idx + 1
 
 
 def _resolve_category(name: str) -> str:
@@ -109,6 +126,11 @@ def ensure_clips(auto_download: bool = True) -> list[idx.Clip]:
     ensure_layout()
     if not toggle_path().exists():
         _write_toggle_state(0)
+    if not volume_path().exists():
+        try:
+            volume_path().write_text(f"{DEFAULT_VOLUME}\n", encoding="utf-8")
+        except OSError:
+            pass
 
     if index_is_empty():
         if auto_download:
@@ -157,15 +179,21 @@ def run_loop(start_category: str = "openings") -> int:
     while True:
         entries = build_menu(clips, current)
         lines = [e.label for e in entries]
-        sep_idx = len(entries) - 7
-        hot_start = sep_idx + 1
+        sep_idx, hot_start = _strip_indices(entries)
         title = CAT_TITLE[current]
+        vol = get_volume()
         if backend == "rofi":
-            mesg = f"  {CAT_HINT[current]}     ·     Alt+F fade  ·  Alt+X stop  ·  Alt+1–4 hotkeys"
+            mesg = (
+                f"  {CAT_HINT[current]}     ·     vol {vol}%  ·  "
+                f"Alt+F fade  ·  Alt+X stop  ·  Alt+1–4 hotkeys"
+            )
         elif backend == "fzf":
-            mesg = f"{CAT_HINT[current]}  ·  ctrl-f fade · ctrl-x stop · ctrl-1–4 hotkeys"
+            mesg = (
+                f"{CAT_HINT[current]}  ·  vol {vol}%  ·  "
+                f"ctrl-f fade · ctrl-x stop · ctrl-1–4 hotkeys"
+            )
         else:
-            mesg = f"{CAT_HINT[current]}  ·  f fade · x stop · h1–h4 hotkeys"
+            mesg = f"{CAT_HINT[current]}  ·  vol {vol}%  ·  f fade · x stop · h1–h4 hotkeys"
 
         result = show_menu(
             lines,
@@ -213,6 +241,10 @@ def run_loop(start_category: str = "openings") -> int:
                 fade_out_all()
             elif meta.action == "stop":
                 stop_all()
+            elif meta.action == "vol_down":
+                volume_down()
+            elif meta.action == "vol_up":
+                volume_up()
             continue
 
     return 0

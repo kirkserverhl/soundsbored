@@ -8,10 +8,23 @@ Port of the Hyprland/rofi soundboard: category browser, persistent hotkeys (Sad 
 
 - Categories: **Openings → In-Call → Closers / Misc**
 - Persistent hotkey strip on every page
+- Menu-item **Volume Up / Down** (10% steps, remembered across runs)
 - Overlapping clip playback (classic soundboard behavior)
 - Smooth fade-out or hard stop
 - First-run (or `soundsbored download`) pulls audio from your `soundboard.txt`
 - Installable Python package — `pip install` from GitHub on a work Mac
+
+### Cross-platform design
+
+One codebase for Linux and macOS:
+
+| Layer | Approach |
+|-------|----------|
+| Playback, volume, download, clip index | **Shared** (mpv + yt-dlp) — no OS branching |
+| Menu UI | **Capability detect**: rofi → fzf → CLI (not “if Linux else Mac” for every feature) |
+| Notifications / data paths | Thin OS adapters (`notify-send` vs `osascript`, `platformdirs`) |
+
+That scales better for a Mac version than wrapping every feature in `if linux / else mac`.
 
 ## System requirements
 

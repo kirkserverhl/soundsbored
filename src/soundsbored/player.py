@@ -1,4 +1,8 @@
-"""mpv playback with fade/stop via JSON IPC (pure Python sockets)."""
+"""mpv playback with fade/stop/volume via JSON IPC (pure Python sockets).
+
+Volume and playback are platform-agnostic (mpv). OS differences live only
+in the menu backend (rofi/fzf) and notifications.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +16,12 @@ import uuid
 from pathlib import Path
 
 from soundsbored.notify import notify, warn
-from soundsbored.paths import ipc_dir, which
+from soundsbored.paths import ipc_dir, volume_path, which
+
+DEFAULT_VOLUME = 100
+VOLUME_STEP = 10
+VOLUME_MIN = 0
+VOLUME_MAX = 100
 
 
 def _fade_secs() -> float:
@@ -27,6 +36,42 @@ def _fade_steps() -> int:
         return max(1, int(os.environ.get("SOUNDSBORED_FADE_STEPS", "20")))
     except ValueError:
         return 20
+
+
+def get_volume() -> int:
+    """Persistent board volume (0–100). Shared on Linux and macOS."""
+    p = volume_path()
+    try:
+        raw = p.read_text(encoding="utf-8").strip()
+        return max(VOLUME_MIN, min(VOLUME_MAX, int(raw)))
+    except (OSError, ValueError):
+        return DEFAULT_VOLUME
+
+
+def set_volume(level: int, *, apply_live: bool = True, notify_user: bool = True) -> int:
+    """Clamp, persist, optionally push to active mpv instances."""
+    level = max(VOLUME_MIN, min(VOLUME_MAX, int(level)))
+    try:
+        volume_path().parent.mkdir(parents=True, exist_ok=True)
+        volume_path().write_text(f"{level}\n", encoding="utf-8")
+    except OSError as e:
+        warn(f"Could not save volume: {e}")
+
+    if apply_live:
+        for s in _active_socks():
+            mpv_cmd(s, ["set_property", "volume", level])
+
+    if notify_user:
+        notify("Soundsbored", f"Volume {level}%", timeout_ms=900)
+    return level
+
+
+def volume_up(step: int = VOLUME_STEP) -> int:
+    return set_volume(get_volume() + step)
+
+
+def volume_down(step: int = VOLUME_STEP) -> int:
+    return set_volume(get_volume() - step)
 
 
 def _mpv_bin() -> str:
@@ -89,13 +134,14 @@ def play_file(path: Path | str | None) -> bool:
         notify("Soundsbored", str(e))
         return False
 
+    vol = get_volume()
     # Overlapping playback (classic soundboard). Quiet, no video, IPC for fade-out.
     subprocess.Popen(
         [
             mpv,
             "--no-video",
             "--really-quiet",
-            "--volume=100",
+            f"--volume={vol}",
             "--force-window=no",
             f"--input-ipc-server={sock}",
             "--keep-open=no",
@@ -125,10 +171,11 @@ def fade_out_all() -> None:
     secs = _fade_secs()
     steps = _fade_steps()
     delay = secs / steps
+    start_vol = get_volume()
 
-    def _worker(targets: list[Path]) -> None:
+    def _worker(targets: list[Path], start: int) -> None:
         for i in range(1, steps + 1):
-            vol = max(0, 100 - (100 * i // steps))
+            vol = max(0, start - (start * i // steps))
             for s in targets:
                 mpv_cmd(s, ["set_property", "volume", vol])
             time.sleep(delay)
@@ -139,7 +186,7 @@ def fade_out_all() -> None:
             except OSError:
                 pass
 
-    threading.Thread(target=_worker, args=(socks,), daemon=True).start()
+    threading.Thread(target=_worker, args=(socks, start_vol), daemon=True).start()
     notify("Soundsbored", f"Fade out ({secs}s)…", timeout_ms=1200)
 
 

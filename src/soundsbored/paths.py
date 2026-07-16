@@ -38,6 +38,10 @@ def toggle_path() -> Path:
     return state_dir() / "wooo_awww"
 
 
+def volume_path() -> Path:
+    return state_dir() / "volume"
+
+
 def soundboard_list_path() -> Path:
     return data_root() / "soundboard.txt"
 

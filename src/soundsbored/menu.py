@@ -45,10 +45,22 @@ def rofi_theme() -> Path | None:
 
 
 def detect_backend() -> str:
-    """Return 'rofi', 'fzf', or 'cli'."""
+    """
+    Pick a menu backend by capability (not a big OS if/else tree).
+
+    Order:
+      1. SOUNDSBORED_MENU override
+      2. rofi when available and not on macOS (primary Linux UX)
+      3. fzf when available (primary macOS UX; also fine on Linux)
+      4. plain numbered CLI
+
+    Shared features (playback, volume, download) never branch on OS —
+    only the thin UI/notification layers do.
+    """
     forced = os.environ.get("SOUNDSBORED_MENU", "").strip().lower()
     if forced in {"rofi", "fzf", "cli"}:
         return forced
+    # Prefer rofi on Linux/BSD when installed; macOS almost never has it.
     if platform.system() != "Darwin" and which("rofi"):
         return "rofi"
     if which("fzf"):
