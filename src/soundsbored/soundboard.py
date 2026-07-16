@@ -169,6 +169,7 @@ def run_loop(start_category: str = "openings") -> int:
     clips = ensure_clips(auto_download=True)
     current = _resolve_category(start_category)
     backend = detect_backend()
+    print(f"soundsbored · menu={backend} · clips={len(clips)} · vol={get_volume()}%", flush=True)
 
     if backend == "rofi":
         try:

@@ -176,6 +176,31 @@ soundsbored download   # first-time clip fetch
 soundsbored
 ```
 
+## macOS troubleshooting
+
+If `soundsbored` exits immediately with no menu:
+
+```bash
+soundsbored doctor
+soundsbored version          # should be >= 0.1.1
+export SOUNDSBORED_MENU=cli  # force numbered menu
+soundsbored
+```
+
+YouTube download warnings about a JS runtime:
+
+```bash
+brew install node             # or: brew install deno
+soundsbored download          # re-fetch clips
+```
+
+Upgrade after a fix is pushed:
+
+```bash
+pipx upgrade soundsbored
+# or: pipx reinstall soundsbored
+```
+
 ## Linux notes (existing rofi setup)
 
 If you already use the bash/rofi version under Hyprland, this package coexists:

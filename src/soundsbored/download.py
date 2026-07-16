@@ -20,6 +20,15 @@ def slugify(name: str) -> str:
     return s or "clip"
 
 
+def _detect_js_runtime() -> str | None:
+    """Return yt-dlp --js-runtimes value if node/deno/bun is on PATH."""
+    for name in ("node", "deno", "bun"):
+        path = which(name)
+        if path:
+            return f"{name}:{path}"
+    return None
+
+
 def _existing_audio(base: Path) -> Path | None:
     for ext in AUDIO_EXTS:
         candidate = Path(f"{base}.{ext}")
@@ -93,6 +102,18 @@ def download_all(list_path: Path | None = None) -> Path:
             ) from e
     else:
         ytdlp_cmd = [ytdlp]
+
+    # YouTube now wants a JS runtime for reliable extraction (node/deno/bun).
+    js_runtime = _detect_js_runtime()
+    if js_runtime:
+        ytdlp_cmd.extend(["--js-runtimes", js_runtime])
+    else:
+        warn(
+            "No JS runtime found for yt-dlp (recommended on macOS).\n"
+            "  brew install node\n"
+            "  # or: brew install deno\n"
+            "YouTube downloads may fail or be incomplete without one."
+        )
 
     clips = clips_dir()
     clips.mkdir(parents=True, exist_ok=True)

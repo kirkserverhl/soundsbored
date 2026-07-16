@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import sys
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
+from soundsbored.notify import warn
 from soundsbored.paths import which
 
 
@@ -58,8 +60,18 @@ def detect_backend() -> str:
     only the thin UI/notification layers do.
     """
     forced = os.environ.get("SOUNDSBORED_MENU", "").strip().lower()
-    if forced in {"rofi", "fzf", "cli"}:
-        return forced
+    if forced == "cli":
+        return "cli"
+    if forced == "fzf":
+        if which("fzf"):
+            return "fzf"
+        warn("SOUNDSBORED_MENU=fzf but fzf not found; using cli")
+        return "cli"
+    if forced == "rofi":
+        if which("rofi"):
+            return "rofi"
+        warn("SOUNDSBORED_MENU=rofi but rofi not found; trying fzf/cli")
+
     # Prefer rofi on Linux/BSD when installed; macOS almost never has it.
     if platform.system() != "Darwin" and which("rofi"):
         return "rofi"
@@ -78,9 +90,21 @@ def show_menu(
 ) -> MenuResult:
     backend = detect_backend()
     if backend == "rofi":
-        return _rofi(lines, prompt=prompt, message=message, separator_index=separator_index, hotkey_start=hotkey_start)
+        return _rofi(
+            lines,
+            prompt=prompt,
+            message=message,
+            separator_index=separator_index,
+            hotkey_start=hotkey_start,
+        )
     if backend == "fzf":
-        return _fzf(lines, prompt=prompt, message=message)
+        result = _fzf(lines, prompt=prompt, message=message)
+        # If fzf could not start / errored, fall back to numbered CLI
+        if result.kind == MenuResultKind.CANCEL and os.environ.get("_SOUNDSBORED_FZF_FAIL"):
+            os.environ.pop("_SOUNDSBORED_FZF_FAIL", None)
+            warn("fzf failed — using simple numbered menu instead")
+            return _cli(lines, prompt=prompt, message=message)
+        return result
     return _cli(lines, prompt=prompt, message=message)
 
 
@@ -171,12 +195,20 @@ def _fzf(lines: list[str], *, prompt: str, message: str) -> MenuResult:
       ctrl-f          → fade out
       ctrl-x          → stop
       ctrl-1..4       → hotkeys
+
+    Important: do NOT capture stderr. When the candidate list is piped on
+    stdin, fzf draws its UI on /dev/tty or falls back to stderr. Capturing
+    stderr makes the UI impossible and fzf exits immediately (silent cancel).
     """
-    header = f"{message}\nctrl-n next · ctrl-p prev · ctrl-f fade · ctrl-x stop · ctrl-1..4 hotkeys"
+    fzf = which("fzf")
+    if not fzf:
+        os.environ["_SOUNDSBORED_FZF_FAIL"] = "1"
+        return MenuResult(MenuResultKind.CANCEL)
+
+    header = f"{message} | ctrl-n/p cat · ctrl-f fade · ctrl-x stop · ctrl-1..4 hotkeys"
     expect_keys = "right,left,ctrl-n,ctrl-p,ctrl-f,ctrl-x,ctrl-1,ctrl-2,ctrl-3,ctrl-4"
     cmd = [
-        "fzf",
-        "--ansi",
+        fzf,
         "--height=80%",
         "--layout=reverse",
         "--border",
@@ -187,20 +219,37 @@ def _fzf(lines: list[str], *, prompt: str, message: str) -> MenuResult:
         "--expect",
         expect_keys,
     ]
-    proc = subprocess.run(
-        cmd,
-        input="\n".join(lines) + "\n",
-        text=True,
-        capture_output=True,
-    )
-    out = (proc.stdout or "")
-    if proc.returncode != 0 and not out.strip():
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            input="\n".join(lines) + "\n",
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=None,  # inherit — required for interactive UI
+        )
+    except OSError as e:
+        warn(f"fzf could not start: {e}")
+        os.environ["_SOUNDSBORED_FZF_FAIL"] = "1"
+        return MenuResult(MenuResultKind.CANCEL)
+
+    out = proc.stdout or ""
+    # User cancel (Esc / Ctrl-C)
+    if proc.returncode in (1, 130) and not out.strip():
+        return MenuResult(MenuResultKind.CANCEL)
+    # Unexpected failure (bad flags, no TTY, etc.)
+    if proc.returncode not in (0, 1, 130) and not out.strip():
+        warn(f"fzf exited with code {proc.returncode}")
+        os.environ["_SOUNDSBORED_FZF_FAIL"] = "1"
         return MenuResult(MenuResultKind.CANCEL)
 
     # --expect: first line is key (empty if Enter), second line is selection
     parts = out.splitlines()
     key = parts[0] if parts else ""
-    selected = parts[1] if len(parts) > 1 else ""
+    selected = parts[1] if len(parts) > 1 else (parts[0] if parts and parts[0] not in {
+        "right", "left", "ctrl-n", "ctrl-p", "ctrl-f", "ctrl-x",
+        "ctrl-1", "ctrl-2", "ctrl-3", "ctrl-4",
+    } else "")
 
     key_map: dict[str, MenuResult] = {
         "right": MenuResult(MenuResultKind.NEXT_CAT),
@@ -231,8 +280,11 @@ def _cli(lines: list[str], *, prompt: str, message: str) -> MenuResult:
     print()
     print("  n  next category   p  previous")
     print("  f  fade out        x  stop all")
-    print("  1-4 hotkeys        q  quit")
+    print("  h1–h4 hotkeys      q  quit")
     try:
+        if not sys.stdin.isatty():
+            warn("stdin is not a TTY — cannot read menu choice")
+            return MenuResult(MenuResultKind.CANCEL)
         choice = input("> ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         return MenuResult(MenuResultKind.CANCEL)
@@ -247,13 +299,6 @@ def _cli(lines: list[str], *, prompt: str, message: str) -> MenuResult:
         return MenuResult(MenuResultKind.FADE)
     if choice in {"x", "stop"}:
         return MenuResult(MenuResultKind.STOP)
-    if choice in {"1", "2", "3", "4"} and choice.isdigit() and not choice.startswith("0"):
-        # Ambiguous: number could be hotkey OR list index.
-        # Single digit 1-4 when there are many items: treat as list index if
-        # user typed a number that maps to a row; use h1-h4 for hotkeys.
-        idx = int(choice) - 1
-        if 0 <= idx < len(lines):
-            return MenuResult(MenuResultKind.SELECT, selected=lines[idx])
     if choice.startswith("h") and choice[1:].isdigit():
         hk = int(choice[1:]) - 1
         if 0 <= hk <= 3:
@@ -264,4 +309,4 @@ def _cli(lines: list[str], *, prompt: str, message: str) -> MenuResult:
             return MenuResult(MenuResultKind.SELECT, selected=lines[idx])
 
     print("Invalid choice.")
-    return MenuResult(MenuResultKind.SELECT, selected="")  # noop re-show handled by empty
+    return MenuResult(MenuResultKind.SELECT, selected="")
