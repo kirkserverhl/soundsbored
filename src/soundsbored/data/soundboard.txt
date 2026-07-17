@@ -39,13 +39,18 @@ https://www.youtube.com/watch?v=Xkp51dSOSaE&list=PLEiUrJClGhRRO34IaOu711T9nSOGUE
 # We Now Join Our Regularly Scheduled Programing
 https://www.youtube.com/watch?v=_L9rkJr--r0
 
+# --- local imports (from soundsbored/unprocessed → clips/*.opus) ---
+# Cisco Hold Music
+# DJ Air Horn
+# French Fry Pizza
+# I'll Be Back
+# I'm Rich Bitch
+# Seinfeld Bass
+
 
 ## Closers / Misc ##
 
-# That’s all Folks!
-https://www.youtube.com/watch?v=n3QsQ00lN0w
-
-# That's All Folks! Best 
+# That's All Folks!
 https://www.youtube.com/watch?v=-_kwXNVCaxY
 
 # Fire Alarm
@@ -64,11 +69,10 @@ https://www.youtube.com/watch?v=wT-qDrH4lhA
 # Damn son
 https://www.youtube.com/shorts/llpZFnV4ZUw
 
-##Make it so that WoooOOOOOoo and Awww are a single always present button that toggles or switches between the two so 'woooooooooo' 'awwwww'
-# WoooOOOOOoo
+# WoooOOOOOoo (separate hotkey; always present)
 https://youtu.be/2npiUVaQX30
 
-# Awww
+# Awww (separate hotkey; clip trimmed to first awww only)
 https://www.youtube.com/watch?v=b1Fz1GYhv98&list=PLI7X4T88i2SRBBe1PASGuG_NM9iEax8mj&index=18
 
 # Laugh Tracks  (random choose one at random)

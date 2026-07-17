@@ -38,21 +38,20 @@ def _existing_audio(base: Path) -> Path | None:
 
 
 def _classify(name: str, section: str, after_police: bool) -> tuple[str, str]:
-    """Return (category, role) for a clip name."""
+    """Return (category, role) for a clip name.
+
+    Wooo and Awww are separate always-present hotkeys (not a toggle).
+    """
     nlc = name.lower()
     cat: str
     role: str
 
     if after_police or section == "hotkeys":
         cat = "hotkeys"
-        if "wooo" in nlc:
-            role = "toggle_a"
-        elif "awww" in nlc or re.search(r"\baww\b", nlc):
-            role = "toggle_b"
-        elif "laugh" in nlc:
+        if "laugh" in nlc:
             role = "random"
         else:
-            role = "hotkey"
+            role = "hotkey"  # sad, damn, wooo, awww, …
     else:
         if section in ("intros", "openings"):
             cat = "openings"
@@ -64,7 +63,7 @@ def _classify(name: str, section: str, after_police: bool) -> tuple[str, str]:
             cat = section or "misc"
         role = "normal"
 
-    # Name-based overrides (hotkey strip + toggle + random)
+    # Name-based overrides (hotkey strip + random)
     if "police" in nlc and "siren" in nlc:
         cat, role = "closers", "normal"
     elif "sad" in nlc and "trombone" in nlc:
@@ -72,13 +71,33 @@ def _classify(name: str, section: str, after_police: bool) -> tuple[str, str]:
     elif "damn" in nlc and "son" in nlc:
         cat, role = "hotkeys", "hotkey"
     elif "wooo" in nlc:
-        cat, role = "hotkeys", "toggle_a"
+        cat, role = "hotkeys", "hotkey"
     elif "awww" in nlc or re.search(r"\baww\b", nlc):
-        cat, role = "hotkeys", "toggle_b"
+        cat, role = "hotkeys", "hotkey"
     elif "laugh" in nlc:
         cat, role = "hotkeys", "random"
 
     return cat, role
+
+
+def _preserve_local_rows(existing_index: Path) -> list[str]:
+    """Keep local: imports so re-download does not drop machine-local clips."""
+    if not existing_index.is_file():
+        return []
+    rows: list[str] = []
+    for line in existing_index.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 6 and parts[5].startswith("local:"):
+            # Only keep if the file still exists
+            path = Path(parts[4])
+            if path.is_file():
+                rows.append(line)
+            else:
+                warn(f"Dropping missing local clip from index: {parts[2]} ({path})")
+    return rows
 
 
 def download_all(list_path: Path | None = None) -> Path:
@@ -120,7 +139,6 @@ def download_all(list_path: Path | None = None) -> Path:
     idx = index_path()
 
     print(f"==> Parsing {list_file}")
-    # Re-parse with after_police tracking inline (full port of bash logic)
     entries_tsv: list[str] = []
 
     section = ""
@@ -177,7 +195,11 @@ def download_all(list_path: Path | None = None) -> Path:
             got = _existing_audio(base)
             if got is None:
                 # yt-dlp may have used a slightly different name
-                matches = sorted(clips.glob(f"{base.name}.*"), key=lambda p: p.stat().st_mtime, reverse=True)
+                matches = sorted(
+                    clips.glob(f"{base.name}.*"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
                 matches = [m for m in matches if m.suffix.lstrip(".") in AUDIO_EXTS]
                 got = matches[0] if matches else None
 
@@ -238,6 +260,18 @@ def download_all(list_path: Path | None = None) -> Path:
 
     if current_name:
         flush_entry(current_name, current_urls)
+
+    # Merge machine-local imports (from soundsbored import / prior runs)
+    local_rows = _preserve_local_rows(idx)
+    if local_rows:
+        # Avoid duplicate slugs if a local was also downloaded somehow
+        seen_slugs = {row.split("\t")[3] for row in entries_tsv if "\t" in row}
+        for row in local_rows:
+            slug = row.split("\t")[3]
+            if slug not in seen_slugs:
+                entries_tsv.append(row)
+                seen_slugs.add(slug)
+        print(f"  kept {len(local_rows)} local import(s)")
 
     header = "# category\trole\tname\tslug\tpath\turl\n"
     idx.write_text(header + "\n".join(entries_tsv) + ("\n" if entries_tsv else ""), encoding="utf-8")

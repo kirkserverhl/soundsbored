@@ -12,7 +12,7 @@ from soundsbored.download import download_all
 from soundsbored.index import index_is_empty
 from soundsbored.menu import MenuResultKind, detect_backend, show_menu
 from soundsbored.notify import notify, warn
-from soundsbored.paths import ensure_layout, index_path, toggle_path, volume_path
+from soundsbored.paths import ensure_layout, index_path, volume_path
 from soundsbored.player import (
     DEFAULT_VOLUME,
     fade_out_all,
@@ -40,34 +40,8 @@ CAT_HINT = {
 @dataclass
 class MenuEntry:
     label: str
-    action: str  # play | toggle | laugh | fade | stop | vol_down | vol_up | noop
+    action: str  # play | laugh | fade | stop | vol_down | vol_up | noop
     path: Path | None = None
-
-
-def _read_toggle_state() -> int:
-    p = toggle_path()
-    try:
-        return 0 if p.read_text(encoding="utf-8").strip() == "0" else 1
-    except OSError:
-        return 0
-
-
-def _write_toggle_state(value: int) -> None:
-    toggle_path().write_text(f"{value}\n", encoding="utf-8")
-
-
-def play_toggle_wooo_awww(clips: list[idx.Clip]) -> None:
-    state = _read_toggle_state()
-    if state == 0:
-        role, next_state, label = "toggle_a", 1, "Wooo"
-    else:
-        role, next_state, label = "toggle_b", 0, "Awww"
-    clip = idx.toggle_clip(clips, role)
-    _write_toggle_state(next_state)
-    if clip:
-        play_file(clip.path)
-    next_label = "Wooo" if next_state == 0 else "Awww"
-    notify("Soundsbored", f"▶ {label}  (next: {next_label})", timeout_ms=1200)
 
 
 def play_random_laugh(clips: list[idx.Clip]) -> None:
@@ -88,14 +62,14 @@ def build_menu(clips: list[idx.Clip], category: str) -> list[MenuEntry]:
 
     sad = idx.hotkey_by_name_match(clips, "sad")
     damn = idx.hotkey_by_name_match(clips, "damn")
-
-    tstate = _read_toggle_state()
-    tlabel = "Wooo / Awww  · next: Wooo" if tstate == 0 else "Wooo / Awww  · next: Awww"
+    wooo = idx.hotkey_by_name_match(clips, "wooo")
+    awww = idx.hotkey_by_name_match(clips, "aww")
     vol = get_volume()
 
     entries.append(MenuEntry(label="  ♪  Sad Trombone", action="play", path=sad.path if sad else None))
     entries.append(MenuEntry(label="  ♪  Damn Son", action="play", path=damn.path if damn else None))
-    entries.append(MenuEntry(label=f"  ♪  {tlabel}", action="toggle"))
+    entries.append(MenuEntry(label="  ♪  Wooo", action="play", path=wooo.path if wooo else None))
+    entries.append(MenuEntry(label="  ♪  Awww", action="play", path=awww.path if awww else None))
     entries.append(MenuEntry(label="  ♪  Laugh Track (random)", action="laugh"))
     entries.append(MenuEntry(label="  ↷  Fade Out", action="fade"))
     entries.append(MenuEntry(label="  ■  Stop", action="stop"))
@@ -124,8 +98,6 @@ def _resolve_category(name: str) -> str:
 
 def ensure_clips(auto_download: bool = True) -> list[idx.Clip]:
     ensure_layout()
-    if not toggle_path().exists():
-        _write_toggle_state(0)
     if not volume_path().exists():
         try:
             volume_path().write_text(f"{DEFAULT_VOLUME}\n", encoding="utf-8")
@@ -153,6 +125,7 @@ def ensure_clips(auto_download: bool = True) -> list[idx.Clip]:
 
 
 def run_hotkey(clips: list[idx.Clip], hotkey_index: int) -> None:
+    # 0=sad 1=damn 2=wooo 3=awww 4=laugh (when backend supports 5 keys)
     if hotkey_index == 0:
         c = idx.hotkey_by_name_match(clips, "sad")
         play_file(c.path if c else None)
@@ -160,8 +133,12 @@ def run_hotkey(clips: list[idx.Clip], hotkey_index: int) -> None:
         c = idx.hotkey_by_name_match(clips, "damn")
         play_file(c.path if c else None)
     elif hotkey_index == 2:
-        play_toggle_wooo_awww(clips)
+        c = idx.hotkey_by_name_match(clips, "wooo")
+        play_file(c.path if c else None)
     elif hotkey_index == 3:
+        c = idx.hotkey_by_name_match(clips, "aww")
+        play_file(c.path if c else None)
+    elif hotkey_index == 4:
         play_random_laugh(clips)
 
 
@@ -186,15 +163,15 @@ def run_loop(start_category: str = "openings") -> int:
         if backend == "rofi":
             mesg = (
                 f"  {CAT_HINT[current]}     ·     vol {vol}%  ·  "
-                f"Alt+F fade  ·  Alt+X stop  ·  Alt+1–4 hotkeys"
+                f"Alt+1–4 Sad/Damn/Wooo/Awww  ·  Alt+L laugh  ·  Alt+F fade  ·  Alt+X stop"
             )
         elif backend == "fzf":
             mesg = (
                 f"{CAT_HINT[current]}  ·  vol {vol}%  ·  "
-                f"ctrl-f fade · ctrl-x stop · ctrl-1–4 hotkeys"
+                f"ctrl-1–4 Sad/Damn/Wooo/Awww · ctrl-l laugh · ctrl-f fade · ctrl-x stop"
             )
         else:
-            mesg = f"{CAT_HINT[current]}  ·  vol {vol}%  ·  f fade · x stop · h1–h4 hotkeys"
+            mesg = f"{CAT_HINT[current]}  ·  vol {vol}%  ·  h1–h4 · f fade · x stop"
 
         result = show_menu(
             lines,
@@ -234,8 +211,6 @@ def run_loop(start_category: str = "openings") -> int:
                 continue
             if meta.action == "play":
                 play_file(meta.path)
-            elif meta.action == "toggle":
-                play_toggle_wooo_awww(clips)
             elif meta.action == "laugh":
                 play_random_laugh(clips)
             elif meta.action == "fade":

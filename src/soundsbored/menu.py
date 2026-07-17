@@ -19,7 +19,7 @@ class MenuResultKind(Enum):
     CANCEL = auto()
     NEXT_CAT = auto()
     PREV_CAT = auto()
-    HOTKEY = auto()  # index 0..3 → sad, damn, toggle, laugh
+    HOTKEY = auto()  # index 0..4 → sad, damn, wooo, awww, laugh
     FADE = auto()
     STOP = auto()
 
@@ -116,10 +116,16 @@ def _rofi(
     separator_index: int | None,
     hotkey_start: int | None,
 ) -> MenuResult:
+    # -normal-window: real floating window (movable; no layer-shell input lock)
+    # -no-click-to-exit: click other windows without dismissing the board
     cmd = [
         "rofi",
         "-dmenu",
         "-i",
+        "-normal-window",
+        "-no-click-to-exit",
+        "-window-title",
+        "soundsbored",
         "-p",
         prompt,
         "-mesg",
@@ -141,8 +147,10 @@ def _rofi(
         "-kb-custom-6",
         "Alt+4",
         "-kb-custom-7",
-        "Alt+f",
+        "Alt+l",
         "-kb-custom-8",
+        "Alt+f",
+        "-kb-custom-9",
         "Alt+x",
     ]
     theme = rofi_theme()
@@ -169,16 +177,18 @@ def _rofi(
     if rc == 11:
         return MenuResult(MenuResultKind.PREV_CAT)
     if rc == 12:
-        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=0)
+        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=0)  # sad
     if rc == 13:
-        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=1)
+        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=1)  # damn
     if rc == 14:
-        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=2)
+        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=2)  # wooo
     if rc == 15:
-        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=3)
+        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=3)  # awww
     if rc == 16:
-        return MenuResult(MenuResultKind.FADE)
+        return MenuResult(MenuResultKind.HOTKEY, hotkey_index=4)  # laugh
     if rc == 17:
+        return MenuResult(MenuResultKind.FADE)
+    if rc == 18:
         return MenuResult(MenuResultKind.STOP)
     if rc == 0:
         if not selected:
@@ -194,7 +204,8 @@ def _fzf(lines: list[str], *, prompt: str, message: str) -> MenuResult:
       left / ctrl-p   → previous category
       ctrl-f          → fade out
       ctrl-x          → stop
-      ctrl-1..4       → hotkeys
+      ctrl-1..4       → sad / damn / wooo / awww
+      ctrl-l          → random laugh
 
     Important: do NOT capture stderr. When the candidate list is piped on
     stdin, fzf draws its UI on /dev/tty or falls back to stderr. Capturing
@@ -205,8 +216,8 @@ def _fzf(lines: list[str], *, prompt: str, message: str) -> MenuResult:
         os.environ["_SOUNDSBORED_FZF_FAIL"] = "1"
         return MenuResult(MenuResultKind.CANCEL)
 
-    header = f"{message} | ctrl-n/p cat · ctrl-f fade · ctrl-x stop · ctrl-1..4 hotkeys"
-    expect_keys = "right,left,ctrl-n,ctrl-p,ctrl-f,ctrl-x,ctrl-1,ctrl-2,ctrl-3,ctrl-4"
+    header = f"{message} | ctrl-n/p cat · ctrl-1..4 · ctrl-l laugh · ctrl-f fade · ctrl-x stop"
+    expect_keys = "right,left,ctrl-n,ctrl-p,ctrl-f,ctrl-x,ctrl-l,ctrl-1,ctrl-2,ctrl-3,ctrl-4"
     cmd = [
         fzf,
         "--height=80%",
@@ -247,7 +258,7 @@ def _fzf(lines: list[str], *, prompt: str, message: str) -> MenuResult:
     parts = out.splitlines()
     key = parts[0] if parts else ""
     selected = parts[1] if len(parts) > 1 else (parts[0] if parts and parts[0] not in {
-        "right", "left", "ctrl-n", "ctrl-p", "ctrl-f", "ctrl-x",
+        "right", "left", "ctrl-n", "ctrl-p", "ctrl-f", "ctrl-x", "ctrl-l",
         "ctrl-1", "ctrl-2", "ctrl-3", "ctrl-4",
     } else "")
 
@@ -258,6 +269,7 @@ def _fzf(lines: list[str], *, prompt: str, message: str) -> MenuResult:
         "ctrl-p": MenuResult(MenuResultKind.PREV_CAT),
         "ctrl-f": MenuResult(MenuResultKind.FADE),
         "ctrl-x": MenuResult(MenuResultKind.STOP),
+        "ctrl-l": MenuResult(MenuResultKind.HOTKEY, hotkey_index=4),
         "ctrl-1": MenuResult(MenuResultKind.HOTKEY, hotkey_index=0),
         "ctrl-2": MenuResult(MenuResultKind.HOTKEY, hotkey_index=1),
         "ctrl-3": MenuResult(MenuResultKind.HOTKEY, hotkey_index=2),

@@ -1,68 +1,69 @@
 # Soundsbored
 
-Multi-category soundboard for **Linux** (rofi) and **macOS** (fzf).
+Multi-category soundboard — **one Python package** for:
 
-Port of the Hyprland/rofi soundboard: category browser, persistent hotkeys (Sad Trombone, Damn Son, Wooo/Awww toggle, random laugh), overlapping **mpv** playback, fade-out, and clip downloads via **yt-dlp**.
+| Platform | Menu | Typical install |
+|----------|------|-----------------|
+| **Arch / Linux** | **rofi** | Editable clone + thin Hyprland wrapper |
+| **macOS** | **fzf** | `pipx install` from this repo |
+
+Same categories, hotkeys, playback, download, and clip index on both. Only the menu UI is capability-detected (`rofi` → `fzf` → numbered CLI).
 
 ## Features
 
 - Categories: **Openings → In-Call → Closers / Misc**
-- Persistent hotkey strip on every page
-- Menu-item **Volume Up / Down** (10% steps, remembered across runs)
-- Overlapping clip playback (classic soundboard behavior)
+- Persistent hotkey strip on every page:
+  - **Sad Trombone**, **Damn Son**, **Wooo**, **Awww** (separate buttons)
+  - Random **Laugh Track**, **Fade**, **Stop**
+  - Menu volume up/down (remembered)
+- Overlapping **mpv** playback (classic soundboard)
 - Smooth fade-out or hard stop
-- First-run (or `soundsbored download`) pulls audio from your `soundboard.txt`
-- Installable Python package — `pip install` from GitHub on a work Mac
+- `soundsbored download` — yt-dlp from `soundboard.txt`
+- `soundsbored import` — drop local files into `unprocessed/`, convert + level into **In-Call**
+- First-run auto-download when the clip index is empty
 
-### Cross-platform design
+## Architecture
 
-One codebase for Linux and macOS:
+```
+soundsbored (this repo)          ← single source of truth
+  ├─ src/soundsbored/            ← Python package
+  ├─ data/soundboard.txt         ← default clip list (seeded into data dir)
+  └─ unprocessed/                ← optional local drop bin (gitignored audio)
 
-| Layer | Approach |
-|-------|----------|
-| Playback, volume, download, clip index | **Shared** (mpv + yt-dlp) — no OS branching |
-| Menu UI | **Capability detect**: rofi → fzf → CLI (not “if Linux else Mac” for every feature) |
-| Notifications / data paths | Thin OS adapters (`notify-send` vs `osascript`, `platformdirs`) |
+Runtime data (not in git):
+  Linux:  ~/.local/share/soundsbored/
+  macOS:  ~/Library/Application Support/soundsbored/
+    clips/index.tsv + *.opus
+    soundboard.txt
+    state/
+```
 
-That scales better for a Mac version than wrapping every feature in `if linux / else mac`.
+Arch Hyprland keybind should call a **thin wrapper** that execs this package
+(see [Linux (Arch) setup](#linux-arch-setup) below) — not a second bash reimplementation.
 
 ## System requirements
 
 | Tool | Purpose | macOS | Linux |
 |------|---------|-------|-------|
-| **Python** 3.10+ | Runtime | built-in / brew | distro |
-| **mpv** | Playback | `brew install mpv` | distro package |
-| **yt-dlp** | Clip download | `brew install yt-dlp` | distro / pip |
-| **fzf** | Menu (macOS default) | `brew install fzf` | optional |
-| **rofi** | Menu (Linux default) | — | distro package |
+| **Python** 3.10+ | Runtime | brew / system | distro |
+| **mpv** | Playback | `brew install mpv` | distro |
+| **yt-dlp** | YouTube downloads | `brew install yt-dlp` | distro / pip |
+| **ffmpeg** | Convert / normalize local imports | `brew install ffmpeg` | distro |
+| **fzf** | Menu (macOS) | `brew install fzf` | optional |
+| **rofi** | Menu (Linux) | — | distro |
+| **node** (optional) | Reliable YouTube extract | `brew install node` | distro |
 
-Optional: `ffmpeg` (often pulled in by yt-dlp for audio extract).
-
-## Install from GitHub (macOS work laptop)
+## Install — macOS (work laptop)
 
 ```bash
-# 1. System tools
-brew install mpv fzf yt-dlp ffmpeg python
+brew install mpv fzf yt-dlp ffmpeg python node
 
-# 2a. Easiest: pipx (isolated app install)
-brew install pipx
-pipx ensurepath
+# Option A: pipx
+brew install pipx && pipx ensurepath
 pipx install "git+https://github.com/YOUR_USER/soundsbored.git"
-pipx inject soundsbored yt-dlp   # optional Python yt-dlp fallback
+pipx inject soundsbored yt-dlp
 
-# 2b. Or: virtualenv
-git clone https://github.com/YOUR_USER/soundsbored.git
-cd soundsbored
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[download]"
-```
-
-Replace `YOUR_USER` with your GitHub username. After install, `soundsbored` should be on your `PATH` (open a new terminal if needed).
-
-### Editable / local clone
-
-```bash
+# Option B: editable clone
 git clone https://github.com/YOUR_USER/soundsbored.git
 cd soundsbored
 python3 -m venv .venv
@@ -70,147 +71,119 @@ source .venv/bin/activate   # fish: source .venv/bin/activate.fish
 pip install -e ".[download]"
 ```
 
+Replace `YOUR_USER` with the GitHub owner. Open a new terminal if `soundsbored` is not on `PATH`.
+
+## Install — Linux (Arch) setup
+
+Keep **one clone** (e.g. `~/soundsbored`) and install editable:
+
+```bash
+cd ~/soundsbored
+python3 -m venv .venv
+.venv/bin/pip install -e ".[download]"
+.venv/bin/soundsbored doctor
+```
+
+Point your Hyprland keybind wrapper at that venv (example already used on this machine):
+
+```bash
+# ~/.config/hyprgruv/scripts/soundsbored.sh  (or your SCRIPTS path)
+#!/usr/bin/env bash
+set -euo pipefail
+REPO="${SOUNDSBORED_REPO:-$HOME/soundsbored}"
+exec "$REPO/.venv/bin/soundsbored" "$@"
+```
+
+Optional rofi theme for a corner panel (no click-to-exit):  
+`~/.config/rofi/config-soundsbored.rasi` — used automatically when present.
+
+Data dir matches the old bash setup: `~/.local/share/soundsbored/` (clips + index are reused).
+
 ## Usage
 
 ```bash
-# Open the soundboard (downloads clips on first run)
-soundsbored
-
-# Start on a specific category
-soundsbored openings
-soundsbored in-call
+soundsbored                 # open menu (Openings)
+soundsbored in-call         # start on In-Call
 soundsbored closers
 
-# Re-download / refresh clips from soundboard.txt
-soundsbored download
+soundsbored download        # refresh YouTube clips; keeps local: rows
+soundsbored import          # unprocessed/* → In-Call (convert + normalize)
+soundsbored import closers  # import into Closers instead
 
-# Control playback without opening the menu
 soundsbored fade
 soundsbored stop
-
-# Show data dir + detected menu backend
 soundsbored info
+soundsbored doctor
+soundsbored version
 ```
 
 ### Menu controls
 
-| Action | rofi (Linux) | fzf (macOS) | plain CLI |
-|--------|--------------|-------------|-----------|
-| Next category | `→` | `→` / `Ctrl-n` | `n` |
-| Previous category | `←` | `←` / `Ctrl-p` | `p` |
-| Hotkeys 1–4 | `Alt+1`…`Alt+4` | `Ctrl-1`…`Ctrl-4` | `h1`…`h4` |
-| Fade out | `Alt+f` | `Ctrl-f` | `f` |
-| Stop | `Alt+x` | `Ctrl-x` | `x` |
-| Filter | type to filter | type to filter | pick number |
+| Action | rofi (Linux) | fzf (macOS) | CLI |
+|--------|--------------|-------------|-----|
+| Next / prev category | `→` / `←` | `→`/`Ctrl-n` · `←`/`Ctrl-p` | `n` / `p` |
+| Sad / Damn / Wooo / Awww | `Alt+1`…`Alt+4` | `Ctrl-1`…`Ctrl-4` | `h1`…`h4` |
+| Random laugh | `Alt+l` | `Ctrl-l` | menu item |
+| Fade / Stop | `Alt+f` / `Alt+x` | `Ctrl-f` / `Ctrl-x` | `f` / `x` |
+| Filter | type | type | number |
 | Quit | `Esc` | `Esc` | `q` |
 
-Force a menu backend:
+```bash
+export SOUNDSBORED_MENU=fzf   # force: rofi | fzf | cli
+export SOUNDSBORED_DATA=~/somewhere   # override data root
+```
+
+## Clip list & local imports
+
+**YouTube / remote clips** live in `soundboard.txt` (seeded from the package on first run).
+
+**Machine-local drops** (not always shared via git — audio is gitignored):
+
+1. Put files in either:
+   - `~/.local/share/soundsbored/unprocessed/` (Linux), or  
+   - `~/Library/Application Support/soundsbored/unprocessed/` (macOS), or  
+   - `./unprocessed/` in a dev clone  
+2. Run: `soundsbored import`  
+3. Files are converted to opus, leveled (~−14 LUFS), indexed under **In-Call**, and moved to `unprocessed/processed/`
+
+`soundsbored download` **preserves** index rows whose URL starts with `local:` so re-downloads do not wipe imports.
+
+## Keeping Mac and Arch in sync
+
+1. Develop / change features in **this git repo** only.  
+2. On Arch: `git pull` + `.venv/bin/pip install -e ".[download]"` (or restart if already editable).  
+3. On Mac: `pipx upgrade soundsbored` or `git pull` + reinstall editable.  
+4. Clip **binaries** stay per-machine (or copy `clips/` if you want identical audio).  
+5. Clip **list** is shared via `soundboard.txt` in git; after editing, copy to the runtime list or delete the runtime list and re-seed:
 
 ```bash
-export SOUNDSBORED_MENU=fzf   # rofi | fzf | cli
+# optional: refresh seeded list from package (keeps existing clips/)
+cp ~/soundsbored/src/soundsbored/data/soundboard.txt \
+   ~/.local/share/soundsbored/soundboard.txt   # Linux
 ```
 
-## Data layout
-
-| Platform | Default data directory |
-|----------|------------------------|
-| Linux | `~/.local/share/soundsbored/` |
-| macOS | `~/Library/Application Support/soundsbored/` |
-
-Contents:
-
-```
-soundboard.txt     # clip list (seeded from package default on first run)
-clips/             # downloaded audio + index.tsv
-state/             # toggle state + mpv IPC sockets
-```
-
-Override the root:
+## Deploy checklist (new machine)
 
 ```bash
-export SOUNDSBORED_DATA="$HOME/Soundsbored"
-```
+# 1. tools
+# macOS: brew install mpv fzf yt-dlp ffmpeg python node
+# Arch:  sudo pacman -S mpv rofi yt-dlp ffmpeg python-pip
 
-Edit `soundboard.txt` then run `soundsbored download`. Format:
-
-```text
-## Intros ##
-
-# Clip Name
-https://www.youtube.com/watch?v=...
-
-## In-Call ##
-...
-```
-
-## Environment variables
-
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `SOUNDSBORED_DATA` | platform data dir | Runtime data root |
-| `SOUNDSBORED_MENU` | auto | `rofi` / `fzf` / `cli` |
-| `SOUNDSBORED_ROFI_THEME` | auto | Path to `.rasi` theme |
-| `SOUNDSBORED_FADE_SECS` | `1.5` | Fade duration |
-| `SOUNDSBORED_FADE_STEPS` | `20` | Fade steps |
-
-## Push this repo to GitHub
-
-From the machine where this package lives:
-
-```bash
-cd soundsbored
-git init
-git add .
-git commit -m "Initial soundsbored Python package"
-gh repo create soundsbored --public --source=. --remote=origin --push
-# or: git remote add origin git@github.com:YOUR_USER/soundsbored.git && git push -u origin main
-```
-
-Then on the Mac:
-
-```bash
-brew install mpv fzf yt-dlp ffmpeg pipx
-pipx ensurepath
+# 2. package
 pipx install "git+https://github.com/YOUR_USER/soundsbored.git"
-soundsbored download   # first-time clip fetch
-soundsbored
-```
+# or editable clone
 
-## macOS troubleshooting
-
-If `soundsbored` exits immediately with no menu:
-
-```bash
+# 3. first run
 soundsbored doctor
-soundsbored version          # should be >= 0.1.1
-export SOUNDSBORED_MENU=cli  # force numbered menu
-soundsbored
+soundsbored download
+soundsbored               # Linux: rofi · macOS: fzf
+
+# 4. optional local FX
+mkdir -p "$(soundsbored info | awk '/data:/{print $2}')/unprocessed"
+# drop mp3s, then:
+soundsbored import
 ```
-
-YouTube download warnings about a JS runtime:
-
-```bash
-brew install node             # or: brew install deno
-soundsbored download          # re-fetch clips
-```
-
-Upgrade after a fix is pushed:
-
-```bash
-pipx upgrade soundsbored
-# or: pipx reinstall soundsbored
-```
-
-## Linux notes (existing rofi setup)
-
-If you already use the bash/rofi version under Hyprland, this package coexists:
-
-- Same `soundboard.txt` semantics and category/hotkey behavior
-- Default Linux data dir matches `~/.local/share/soundsbored`
-- Uses your `~/.config/rofi/config-soundsbored.rasi` when present
-
-You can keep the old bash script or switch the keybind to `soundsbored`.
 
 ## License
 
-MIT
+MIT — see `LICENSE`.

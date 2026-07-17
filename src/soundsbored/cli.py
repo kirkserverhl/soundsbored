@@ -6,6 +6,7 @@ import sys
 
 from soundsbored import __version__
 from soundsbored.download import download_all
+from soundsbored.import_local import import_unprocessed
 from soundsbored.index import load_index
 from soundsbored.menu import detect_backend
 from soundsbored.notify import warn
@@ -44,7 +45,8 @@ def _print_help() -> None:
 
 Usage:
   soundsbored [category]     Open menu (default category: openings)
-  soundsbored download       Download / refresh clips
+  soundsbored download       Download / refresh clips (keeps local: imports)
+  soundsbored import         Import files from unprocessed/ → In-Call
   soundsbored fade           Fade out all playing clips
   soundsbored stop           Stop all playing clips
   soundsbored info           Show data paths and menu backend
@@ -53,6 +55,10 @@ Usage:
 
 Categories:
   openings | in-call | closers
+
+Platforms:
+  Linux  → rofi menu (same package; Hyprland wrapper optional)
+  macOS  → fzf menu (same package)
 
 Environment:
   SOUNDSBORED_DATA     Override data directory
@@ -122,6 +128,16 @@ def main(argv: list[str] | None = None) -> int:
             ensure_layout()
             download_all()
             return 0
+        if head in {"import", "import-local"}:
+            ensure_layout()
+            # optional: soundsbored import closers
+            cat = "in-call"
+            if len(argv) > 1 and argv[1] in _CATEGORIES:
+                from soundsbored.soundboard import _resolve_category
+
+                cat = _resolve_category(argv[1])
+            n = import_unprocessed(category=cat)
+            return 0 if n >= 0 else 1
         if head == "fade":
             ensure_layout()
             fade_out_all()

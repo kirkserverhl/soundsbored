@@ -54,9 +54,11 @@ def category_items(clips: list[Clip], category: str) -> list[Clip]:
 
 
 def hotkey_by_name_match(clips: list[Clip], needle: str) -> Clip | None:
+    """Match a single hotkey clip by name substring (hotkey or legacy toggle roles)."""
     needle = needle.lower()
+    roles = {"hotkey", "toggle_a", "toggle_b"}
     for c in clips:
-        if c.category == "hotkeys" and c.role == "hotkey" and needle in c.name.lower():
+        if c.category == "hotkeys" and c.role in roles and needle in c.name.lower():
             return c
     return None
 
